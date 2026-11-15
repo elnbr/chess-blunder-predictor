@@ -4,22 +4,20 @@ import io
 import chess.pgn
 import re
 import numpy as np
-import csv
 
 
 def main():
-    filtered_games = filter_games(path="data/lichess_2024_01_partial.pgn.zst", n_games=5_000)
+    filtered_games = filter_games(path="data/lichess_2024_01_partial.pgn.zst", n_games=20_000)
 
     train, groups = get_moves(games=filtered_games)
 
-    with open("data/train.csv", "w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerows(train)
+    train = np.array(train)
 
-    with open("data/game_id.csv", "w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(groups)
-
+    labels = train[:, -1].astype(np.uint8)
+    train = train[:, :-1]
+    groups = np.array(groups)
+    np.savez_compressed("data/moves.npz", X=train, y=labels, groups=groups)
+    
 
 def filter_games(path: str, n_games: int) -> list[chess.pgn.Game]:
 
@@ -90,6 +88,12 @@ def get_moves(games: list[chess.pgn.Game]) -> tuple[list[np.ndarray], list[str]]
         # get the player elos
         white_elo = int(game.headers.get("WhiteElo"))
         black_elo = int(game.headers.get("BlackElo"))
+
+        # this move is used for calculating the material difference
+        PIECE_VALUES = {
+            "P": 1, "N": 3, "B": 3, "R": 5, "Q": 9, "K": 0,
+            "p": -1, "n": -3, "b": -3, "r": -5, "q": -9, "k": 0
+        }
         
         for i, node in enumerate(game.mainline()):
             # start reading the moves after move 5 because the first few moves are mainly theory
@@ -135,33 +139,44 @@ def get_moves(games: list[chess.pgn.Game]) -> tuple[list[np.ndarray], list[str]]
 
             all_moves.append(move_delta)
 
-    for dict in all_moves:
+    for move in all_moves:
+        material_diff = sum(PIECE_VALUES.get(char, 0) for char in move["position_before"].split()[0])
+
+        board = chess.Board(move["position_before"])
+
+        hanging_count_white, hanging_count_black = get_hanging_count(board)
+
+        n_legal = board.legal_moves.count()
 
         # we need the board_array in order to OHE every single piece
-        board_array = fen_to_board(dict["position_before"])
+        board_array = board_to_board_array(board)
 
         # OHE every square for each unique piece. this leads to 12 * 64 = 768 features (# of unique pieces * total squares)
         piece_OHE = board_to_OHE(board_array)
         # normalize the remaining features and add them
         row = np.concatenate([
             piece_OHE, 
-            np.array([dict["moving_side"], 
-                      dict["moving_side_clock"] / (dict["base_time"] + 40 * dict["increment"]), 
-                      dict["base_time"] / 300,
-                      dict["increment"] / 5, 
-                      (dict["player_elo"] - 1500) / 500,
-                      (dict["opponent_elo"] - 1500) / 500,
-                      dict["is_blunder"]])
+            np.array([move["moving_side"], 
+                      move["moving_side_clock"] / (move["base_time"] + 40 * move["increment"]),
+                      move["base_time"] / 300,
+                      move["increment"] / 5, 
+                      (move["player_elo"] - 1500) / 500,
+                      (move["opponent_elo"] - 1500) / 500,
+                      max(-1.0, min(1.0, (material_diff / 39))),
+                      max(-1.0, min(1.0, (n_legal / 80))),
+                      min(1, hanging_count_white / 15),
+                      min(1, hanging_count_black / 15),
+                      move["is_blunder"]])
         ]).astype(np.float32)
 
         train.append(row)
 
-        groups.append(dict["game_id"])
+        groups.append([move["game_id"]])
 
     return train, groups
 
 
-def fen_to_board(fen: str) -> np.ndarray:
+def board_to_board_array(board: chess.Board) -> np.ndarray:
     piece_to_number = {
         "P": 1,
         "N": 2,
@@ -178,8 +193,6 @@ def fen_to_board(fen: str) -> np.ndarray:
     }
 
     board_array = np.array([])
-
-    board = chess.Board(fen)
 
     # store every piece position in a 1d array and map pieces to numbers. positive numbers for white pieces, negative for black pieces, and 0 for empty squares
     for square in chess.SQUARES:
@@ -216,6 +229,27 @@ def board_to_OHE(board_array: np.ndarray) -> np.ndarray:
 
     # turn the 2d array into a 1d array and return it
     return kron_array.ravel().astype(np.uint8)
+
+
+def get_hanging_count(board: chess.Board) -> tuple[int, int]:
+    hanging_count_white = 0
+    hanging_count_black = 0
+
+    for square in chess.SQUARES:
+        piece = board.piece_at(square)
+
+        if not piece or piece.piece_type == chess.KING:
+            continue
+
+        elif piece.color == chess.WHITE:
+            if board.is_attacked_by(chess.BLACK, square) and len(board.attackers(chess.WHITE, square)) == 0:
+                hanging_count_white += 1
+
+        elif piece.color == chess.BLACK:
+            if board.is_attacked_by(chess.WHITE, square) and len(board.attackers(chess.BLACK, square)) == 0:
+                hanging_count_black += 1
+
+    return hanging_count_white, hanging_count_black
 
 
 def calculate_win_percent(centipawns: int) -> float:
