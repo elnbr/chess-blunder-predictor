@@ -34,8 +34,6 @@ def objective(trial):
 
     return model.best_score_["valid_0"]["auc"]
 
-    
-
 
 if __name__ == "__main__":
 
@@ -75,6 +73,6 @@ if __name__ == "__main__":
         "tuned": {"test_roc_auc": t_auc, "test_pr_auc": t_ap, "params": best, "n_trees": final.best_iteration_}
     }
 
-    with open("lgbm_results.json", "w") as f:
+    with open("results/lgbm_results.json", "w") as f:
         json.dump(results, f, indent=2)
-    final.booster_.save_model("lgbm_model.txt")
+    final.booster_.save_model("models/lgbm_model.txt")

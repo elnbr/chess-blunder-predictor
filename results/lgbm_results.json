@@ -1,0 +1,18 @@
+{
+  "default": {
+    "test_roc_auc": 0.030303030303030276,
+    "test_pr_auc": 0.030303030303030304
+  },
+  "tuned": {
+    "test_roc_auc": 0.0,
+    "test_pr_auc": 0.029411764705882353,
+    "params": {
+      "num_leaves": 65,
+      "min_child_samples": 22,
+      "colsample_bytree": 0.7310666836732935,
+      "subsample": 0.7193494548694691,
+      "reg_lambda": 0.028385245373323032
+    },
+    "n_trees": 85
+  }
+}

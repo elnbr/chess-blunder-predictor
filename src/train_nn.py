@@ -114,7 +114,7 @@ if __name__ == "__main__":
     best = study.best_params
     print("best params:", best)
 
-    with open("best_params.json", "w") as f:
+    with open("results/best_params.json", "w") as f:
         json.dump(best, f, indent=2)
 
     model, val_auc = train_model(best, X_train, y_train, X_val, y_val, epochs=30)
@@ -128,4 +128,4 @@ if __name__ == "__main__":
     print(f"test ROC-AUC:   {roc_auc_score(y_true, probs):.4f}")
     print(f"test PR-AUC:    {average_precision_score(y_true, probs):.4f}")
 
-    torch.save(model.state_dict(), "blunder_predictor_mlp.pt")
+    torch.save(model.state_dict(), "models/blunder_predictor_mlp.pt")
